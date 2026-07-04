@@ -473,15 +473,15 @@ output/
 User request: "Crie uma landing page para meu SaaS de analytics"
      │
      ▼
-┌──────────────────────────────────────────────────────┐
-│  design-entry skill (front door)                     │
-│  1. Ground it in the subject: sujeito, audiencia, funcao│
-│  2. Parse brief → extrair produto, público, tom      │
-│  3. Carregar skills externas (UI UX Pro Max, Taste)  │
-│  4. Determinar tipo: landing HTML vs app Next.js     │
-│  5. Estabelecer dials de design                      │
-│  6. Definir signature element                        │
-└───────────────────────┬──────────────────────────────┘
+┌─────────────────────────────────────────────────────────┐
+│  design-entry skill (front door)                        │
+│  1. Ground it in the subject: sujeito,audiencia,funcao  │
+│  2. Parse brief → extrair produto, público, tom         │
+│  3. Carregar skills externas (UI UX Pro Max, Taste)     │
+│  4. Determinar tipo: landing HTML vs app Next.js        │
+│  5. Estabelecer dials de design                         │
+│  6. Definir signature element                           │
+└───────────────────────┬─────────────────────────────────┘
                         │
                         ▼
 ┌──────────────────────────────────────────────────────┐
@@ -1046,7 +1046,7 @@ color: red
 | 1 | HTML | Tags HTML válidas (tags fechadas, atributos com aspas) | critical | Sim (regex/htmllint) |
 | 2 | HTML | Meta tags essenciais (viewport, description, title, OG) | critical | Sim (regex) |
 | 3 | Conversão | CTA primary acima da dobra | critical | Nao (requer layout awareness) |
-| 4 | Conversão | Copy segue fórmula Problem → Solution → CTA | warning | Nao (semantico) |
+| 4 | Conversão | Copy formula aplicada (Problem → Solution → CTA) | warning | Nao (semantico) |
 | 5 | Conversão | Social proof contextualizado | warning | Nao (semantico) |
 | 6 | A11y | Contraste WCAG AA em todos os textos | critical | Nao (requer calculo de cor) |
 | 7 | A11y | Keyboard navigation completa | critical | Nao (requer teste interativo) |
@@ -1320,6 +1320,9 @@ node .opencode/tools/audit-slop.js --dir ./output/
 | `missing-alt` | Imagem sem alt text | `<img src="...">` sem `alt` |
 | `missing-viewport` | Sem meta viewport | `"type": "file"` — verificar se `<meta name="viewport">` existe |
 | `blocking-js` | Script blocking no head | `<script src="...">` sem async/defer |
+| `cream-serif-cluster` | Cluster generico cream+serif+terracotta | `"type": "file"` — verificar cream bg + serif + terracotta |
+| `dark-acid-cluster` | Cluster generico dark+acid green | `"type": "file"` — verificar near-black + acid green/vermilion |
+| `broadsheet-cluster` | Cluster generico broadsheet | `"type": "file"` — verificar hairline rules + zero radius + dense |
 
 **Output JSON:**
 ```json
@@ -1359,48 +1362,31 @@ import { tool } from "@opencode-ai/plugin";
 import fs from "fs";
 import path from "path";
 
-const ANTI_PATTERNS = [
-  {
-    rule: "gradient-text",
-    pattern: /bg-clip-text\s+text-transparent\s+bg-gradient/,
-    type: "regex",
-    severity: "critical",
-    message: "Text gradient detected. Use solid color from design system.",
-  },
-  {
-    rule: "side-stripe-border",
-    pattern: /border-[rltb]-\d+\s+border-(?!white|black|transparent)/,
-    type: "regex",
-    severity: "warning",
-    message: "Side stripe border on card. Use elevation instead.",
-  },
-  {
-    rule: "missing-reduced-motion",
-    pattern: /animation|transition/,
-    type: "file",
-    severity: "critical",
-    message: "Animations without prefers-reduced-motion.",
-    check: (content) => {
-      const hasAnimation = /animation|transition/.test(content);
-      const hasReducedMotion = /prefers-reduced-motion/.test(content);
-      return hasAnimation && !hasReducedMotion;
-    },
-  },
-      // ... mais regras
-    ];
+// Load rules from single source of truth (Sec 8.4)
+const loadAntiPatterns = () => {
+  const jsonPath = path.resolve(__dirname, "../references/anti-patterns.json");
+  if (!fs.existsSync(jsonPath)) {
+    console.warn("[audit-slop] anti-patterns.json not found, using empty ruleset");
+    return [];
+  }
+  const data = JSON.parse(fs.readFileSync(jsonPath, "utf8"));
+  return data.rules || [];
+};
 
-    // Parse check function strings into actual functions
-    const parseCheck = (fnStr) => {
-      if (typeof fnStr === 'function') return fnStr;
-      if (!fnStr) return null;
-      try {
-        return new Function('content', `return ${fnStr}`);
-      } catch {
-        return null;
-      }
-    };
+const ANTI_PATTERNS = loadAntiPatterns();
 
-    function scanDirectory(dir, pattern) {
+// Parse check function strings into actual functions
+const parseCheck = (fnStr) => {
+  if (typeof fnStr === "function") return fnStr;
+  if (!fnStr) return null;
+  try {
+    return new Function("content", `return ${fnStr}`);
+  } catch {
+    return null;
+  }
+};
+
+function scanDirectory(dir, pattern) {
   const results = [];
   function walk(currentDir) {
     for (const entry of fs.readdirSync(currentDir, { withFileTypes: true })) {
@@ -1446,15 +1432,16 @@ export default tool({
         }
       }
 
-      for (const { rule, pattern, type, severity, message, check } of ANTI_PATTERNS) {
+      for (const { id: rule, pattern, type, severity, description: message, check } of ANTI_PATTERNS) {
         if (type === "file") {
           const checkFn = parseCheck(check);
           if (checkFn && checkFn(content)) {
             issues.push({ file, rule, severity, message });
           }
         } else if (type !== "visual" && pattern) {
+          const regex = new RegExp(pattern);
           for (let i = 0; i < lines.length; i++) {
-            if (pattern.test(lines[i])) {
+            if (regex.test(lines[i])) {
               issues.push({
                 file: `${file}:${i + 1}`,
                 rule,
@@ -1859,7 +1846,7 @@ Este projeto usa o Design Harness para criação de interfaces de alta qualidade
       "description": "Clickable element without hover transition",
       "pattern": null,
       "type": "file",
-      "check": "(content) => { const hasClickable = /cursor-pointer|role=\\\"button\\\"|<button/.test(content); const hasHover = /hover:/.test(content); return hasClickable && !hasHover; }",
+      "check": "(content) => { const hasClickable = /cursor-pointer|role=\\\"button\\\"|<button/.test(content); const hasHover = /hover:|:hover/.test(content); return hasClickable && !hasHover; }",
       "suggestion": "Add hover state with 150-300ms transition"
     },
     {
@@ -1880,8 +1867,9 @@ Este projeto usa o Design Harness para criação de interfaces de alta qualidade
       "id": "missing-reduced-motion",
       "severity": "critical",
       "description": "Animations without prefers-reduced-motion media query",
-      "pattern": "animation|transition(?!.*prefers-reduced-motion)",
+      "pattern": null,
       "type": "file",
+      "check": "(content) => { const hasAnimation = /animation|transition/.test(content); const hasReducedMotion = /prefers-reduced-motion/.test(content); return hasAnimation && !hasReducedMotion; }",
       "suggestion": "Add @media (prefers-reduced-motion: reduce) query"
     },
     {
@@ -1982,26 +1970,26 @@ User: "Crie uma landing page para um SaaS de analytics estilo Linear"
    - BM25 match: Soft UI Evolution + Swiss Modernism 2.0
    - Output: MASTER.md + tokens CSS
 
-5. Taste Skill ativa com dials:
-    - VARIANCE: 7 (moderno, assimétrico)
-    - MOTION: 4 (subtil, hover + scroll)
-    - DENSITY: 5 (balanceado)
+6. Taste Skill ativa com dials:
+     - VARIANCE: 7 (moderno, assimétrico)
+     - MOTION: 4 (subtil, hover + scroll)
+     - DENSITY: 5 (balanceado)
 
-6. design-landing constrói a página
-    - 9 seções de conversão
-    - Design system aplicado
-    - Anti-slop rules ativas
+7. design-landing constrói a página
+     - 9 seções de conversão
+     - Design system aplicado
+     - Anti-slop rules ativas
 
-7. Emil Skills adicionam motion
-    - Scroll reveal com ease-out 500ms
-    - Hover states com spring
-    - prefers-reduced-motion
+8. Emil Skills adicionam motion
+     - Scroll reveal com ease-out 500ms
+     - Hover states com spring
+     - prefers-reduced-motion
 
-8. design-verifier valida checklist (25 itens)
-9. design-critic audita anti-slop (45+ regras)
-10. audit-slop executa detecção determinística
-11. audit-vitals verifica LCP/CLS/INP
-12. Preview em :8289
+9. design-verifier valida checklist (25 itens)
+10. design-critic audita anti-slop (45+ regras)
+11. audit-slop executa detecção determinística
+12. audit-vitals verifica LCP/CLS/INP
+13. Preview em :8289
 ```
 
 ### 9.2 App Next.js
@@ -2212,8 +2200,8 @@ Antes de qualquer entrega, os verificadores validam 25 itens:
 | `missing-viewport` | Sem meta viewport | `"type": "file"` — verificar se `<meta name="viewport">` existe |
 | `blocking-js` | Script blocking no head | `<script src="...">` sem async/defer |
 | `cream-serif-cluster` | Cluster generico cream+serif+terracotta | `"type": "file"` — verificar cream bg + serif + terracotta no arquivo |
-| `dark-acid-cluster` | Cluster generico dark+acid green | Fundo preto/near-black + accent verde acido ou vermilion |
-| `broadsheet-cluster` | Cluster generico broadsheet | Hairline rules + zero radius + colunas densas + serif body |
+| `dark-acid-cluster` | Cluster generico dark+acid green | `"type": "file"` — verificar near-black + acid green/vermilion |
+| `broadsheet-cluster` | Cluster generico broadsheet | `"type": "file"` — verificar hairline rules + zero radius + dense |
 
 ---
 
@@ -2381,4 +2369,4 @@ ls .opencode/tools/
 
 ---
 
-*Spec atualizada em 2026-07-04. Versão 1.1.*
+*Spec atualizada em 2026-07-04. Versão 1.2.*
