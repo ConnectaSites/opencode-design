@@ -993,15 +993,17 @@ description: Use when preparing a finished design for developer handoff — docu
 4. Gerar DESIGN.md portátil compatível com outros agentes.
 5. Incluir checklist de implementação para devs.
 
-### 5.10 `design-convert` — Otimização de Conversão
+### 5.10 `design-convert` — Otimização de Conversão (CRO)
 
 **Arquivo:** `.opencode/skills/design-convert/SKILL.md`
+
+**Nota de nomeacao:** `design-convert` refere-se a "conversion rate optimization" (CRO), nao a conversao de formato.
 
 **Frontmatter:**
 ```yaml
 ---
 name: design-convert
-description: Use when optimizing a page for conversion — CTA placement, copywriting, social proof, form design, urgency, or A/B test variants.
+description: Use when optimizing a page for conversion rate (CRO) — CTA placement, copywriting, social proof, form design, urgency, or A/B test variants.
 ---
 ```
 
@@ -1299,7 +1301,7 @@ node .opencode/tools/audit-slop.js --dir ./output/
 | Regra | Descrição | Detecção |
 |-------|-----------|----------|
 | `gradient-text` | Texto com gradiente | `bg-clip-text text-transparent bg-gradient-to-r` |
-| `side-stripe-border` | Borda lateral colorida em cards | `border-[rltb]-\d+ border-{color}` (todos os lados) |
+| `side-stripe-border` | Borda lateral colorida em cards | `"type": "file"` — verificar border-[rltb] + border-{cor} no arquivo |
 | `ai-color-palette` | Paleta genérica de IA | `from-purple-600 via-pink-500 to-orange-400` |
 | `ghost-card` | Card com fundo transparente + borda sutil | `bg-transparent border border-gray-200` |
 | `over-rounding` | Border-radius excessivo | `rounded-3xl` em containers grandes |
@@ -1309,14 +1311,14 @@ node .opencode/tools/audit-slop.js --dir ./output/
 | `blue-purple-bg` | Background blue-purple genérico | `bg-gradient-to-br from-blue-900 to-purple-900` |
 | `decorative-stats` | Números decorativos sem contexto | `99.9% uptime` sem fonte |
 | `excessive-shadow` | Shadow pesado sem hierarquia | `shadow-2xl` em todos os cards |
-| `no-hover-state` | Elemento clicável sem hover | Botão sem `:hover` transition |
+| `no-hover-state` | Elemento clicável sem hover | `"type": "file"` — verificar cursor-pointer sem hover: no arquivo |
 | `linear-easing` | Easing linear em UI | `transition: all 0.3s linear` |
 | `ease-in-enter` | Ease-in para enter animation | `animation: fadeIn ease-in` |
-| `missing-reduced-motion` | Sem prefers-reduced-motion | Verificar arquivo inteiro por `@media.*prefers-reduced-motion` (tipo: file) |
-| `tiny-touch-target` | Touch target < 44px | `min-height: 32px` em botões mobile |
-| `low-contrast` | Contraste < 4.5:1 | Auditado visualmente pelo design-critic (não determinístico por regex) |
+| `missing-reduced-motion` | Sem prefers-reduced-motion | `"type": "file"` — verificar arquivo inteiro por `prefers-reduced-motion` |
+| `tiny-touch-target` | Touch target < 44px | `"type": "file"` — verificar alturas < 44px em elementos clicaveis |
+| `low-contrast` | Contraste < 4.5:1 | `"type": "visual"` — auditado pelo design-critic |
 | `missing-alt` | Imagem sem alt text | `<img src="...">` sem `alt` |
-| `missing-viewport` | Sem meta viewport | Landing page sem `<meta name="viewport">` |
+| `missing-viewport` | Sem meta viewport | `"type": "file"` — verificar se `<meta name="viewport">` existe |
 | `blocking-js` | Script blocking no head | `<script src="...">` sem async/defer |
 
 **Output JSON:**
@@ -1384,10 +1386,21 @@ const ANTI_PATTERNS = [
       return hasAnimation && !hasReducedMotion;
     },
   },
-  // ... mais regras
-];
+      // ... mais regras
+    ];
 
-function scanDirectory(dir, pattern) {
+    // Parse check function strings into actual functions
+    const parseCheck = (fnStr) => {
+      if (typeof fnStr === 'function') return fnStr;
+      if (!fnStr) return null;
+      try {
+        return new Function('content', `return ${fnStr}`);
+      } catch {
+        return null;
+      }
+    };
+
+    function scanDirectory(dir, pattern) {
   const results = [];
   function walk(currentDir) {
     for (const entry of fs.readdirSync(currentDir, { withFileTypes: true })) {
@@ -1434,11 +1447,12 @@ export default tool({
       }
 
       for (const { rule, pattern, type, severity, message, check } of ANTI_PATTERNS) {
-        if (type === "file" && check) {
-          if (check(content)) {
+        if (type === "file") {
+          const checkFn = parseCheck(check);
+          if (checkFn && checkFn(content)) {
             issues.push({ file, rule, severity, message });
           }
-        } else if (type !== "visual") {
+        } else if (type !== "visual" && pattern) {
           for (let i = 0; i < lines.length; i++) {
             if (pattern.test(lines[i])) {
               issues.push({
@@ -1770,8 +1784,9 @@ Este projeto usa o Design Harness para criação de interfaces de alta qualidade
       "id": "side-stripe-border",
       "severity": "warning",
       "description": "Colored side border on cards (border-[rltb]-N border-{color})",
-      "pattern": "border-[rltb]-\\d+\\s+border-(?!white|black|transparent)",
-      "type": "regex",
+      "pattern": null,
+      "type": "file",
+      "check": "(content) => { const hasSideBorder = /border-[rltb]-\\d+/.test(content); const hasColorBorder = /border-(red|blue|green|yellow|purple|pink|orange|indigo|teal|cyan|rose|amber|emerald|fuchsia|violet|lime|sky|)-/.test(content); return hasSideBorder && hasColorBorder; }",
       "suggestion": "Use elevation (shadow) instead of colored borders"
     },
     {
@@ -1842,7 +1857,9 @@ Este projeto usa o Design Harness para criação de interfaces de alta qualidade
       "id": "no-hover-state",
       "severity": "warning",
       "description": "Clickable element without hover transition",
-      "pattern": "cursor-pointer(?![^>]*hover:)",
+      "pattern": null,
+      "type": "file",
+      "check": "(content) => { const hasClickable = /cursor-pointer|role=\\\"button\\\"|<button/.test(content); const hasHover = /hover:/.test(content); return hasClickable && !hasHover; }",
       "suggestion": "Add hover state with 150-300ms transition"
     },
     {
@@ -1871,8 +1888,10 @@ Este projeto usa o Design Harness para criação de interfaces de alta qualidade
       "id": "tiny-touch-target",
       "severity": "critical",
       "description": "Touch target smaller than 44px on mobile",
-      "pattern": "min-height:\\s*\\d{1,2}px|h-\\d{1,2}(?!xl)",
-      "suggestion": "Ensure minimum 44px touch targets on mobile"
+      "pattern": null,
+      "type": "file",
+      "check": "(content) => { const smallHeights = /min-height:\\s*[1-3]\\d{0,1}px|height:\\s*[1-3]\\d{0,1}px/.test(content); const smallTailwind = /h-[1-9]|h-1[0-3]/.test(content); return smallHeights || smallTailwind; }",
+      "suggestion": "Ensure minimum 44px touch targets on mobile (h-11 = 44px in Tailwind)"
     },
     {
       "id": "low-contrast",
@@ -1893,7 +1912,9 @@ Este projeto usa o Design Harness para criação de interfaces de alta qualidade
       "id": "missing-viewport",
       "severity": "critical",
       "description": "Missing viewport meta tag",
-      "pattern": "(?<!name=\")viewport(?!\"|>)",
+      "pattern": null,
+      "type": "file",
+      "check": "(content) => !content.includes('name=\\\"viewport\\\"')",
       "suggestion": "Add <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
     },
     {
@@ -1907,21 +1928,27 @@ Este projeto usa o Design Harness para criação de interfaces de alta qualidade
       "id": "cream-serif-cluster",
       "severity": "warning",
       "description": "Generic AI cluster: cream background (#F4F1EA range) + serif display + terracotta accent",
-      "pattern": "(#[Ff][4-5][Aa][0-2][Ee][Aa][0-2]|cream|ivory|beige).*serif.*terracotta|terracotta.*cream",
+      "pattern": null,
+      "type": "file",
+      "check": "(content) => { const hasCream = /#[Ff][4-5][Aa][0-2][Ee][Aa][0-2]|cream|ivory|beige/.test(content); const hasSerif = /serif/.test(content); const hasTerracotta = /terracotta|#C24|#[Bb][0-4][Aa][0-5]/.test(content); return hasCream && hasSerif && hasTerracotta; }",
       "suggestion": "Derive palette from the product's world, not from AI defaults"
     },
     {
       "id": "dark-acid-cluster",
       "severity": "warning",
       "description": "Generic AI cluster: near-black background + acid green or vermilion accent",
-      "pattern": "(#0a0a0a|#111111|#0d0d0d).*([3-5][Aa][0-9][Aa]f|lime|acid-green)|acid.*green.*dark",
+      "pattern": null,
+      "type": "file",
+      "check": "(content) => { const hasDark = /#0a0a0a|#111111|#0d0d0d|#000000/.test(content); const hasAcid = /[3-5][Aa][0-9][Aa]f|lime|acid-green|neon-green/.test(content); return hasDark && hasAcid; }",
       "suggestion": "Choose accent color from brand personality, not from AI cluster defaults"
     },
     {
       "id": "broadsheet-cluster",
       "severity": "warning",
       "description": "Generic AI cluster: newspaper-style layout with hairline rules, zero border-radius, dense columns",
-      "pattern": "border-radius:\\s*0.*hairline|newspaper.*columns.*border-radius:\\s*0",
+      "pattern": null,
+      "type": "file",
+      "check": "(content) => { const hasZeroRadius = /border-radius:\\s*0|rounded-none/.test(content); const hasHairline = /border-bottom:\\s*1px|hairline|divide-y/.test(content); const hasDense = /columns-[2-4]|grid-cols-[2-4]|dense/.test(content); return hasZeroRadius && hasHairline && hasDense; }",
       "suggestion": "Use intentional layout structure, not broadsheet default"
     }
   ]
@@ -1955,26 +1982,26 @@ User: "Crie uma landing page para um SaaS de analytics estilo Linear"
    - BM25 match: Soft UI Evolution + Swiss Modernism 2.0
    - Output: MASTER.md + tokens CSS
 
-3. Taste Skill ativa com dials:
-   - VARIANCE: 7 (moderno, assimétrico)
-   - MOTION: 4 (subtil, hover + scroll)
-   - DENSITY: 5 (balanceado)
+5. Taste Skill ativa com dials:
+    - VARIANCE: 7 (moderno, assimétrico)
+    - MOTION: 4 (subtil, hover + scroll)
+    - DENSITY: 5 (balanceado)
 
-4. design-landing constrói a página
-   - 9 seções de conversão
-   - Design system aplicado
-   - Anti-slop rules ativas
+6. design-landing constrói a página
+    - 9 seções de conversão
+    - Design system aplicado
+    - Anti-slop rules ativas
 
-5. Emil Skills adicionam motion
-   - Scroll reveal com ease-out 500ms
-   - Hover states com spring
-   - prefers-reduced-motion
+7. Emil Skills adicionam motion
+    - Scroll reveal com ease-out 500ms
+    - Hover states com spring
+    - prefers-reduced-motion
 
-6. design-verifier valida checklist (25 itens)
-7. design-critic audita anti-slop (45+ regras)
-8. audit-slop executa detecção determinística
-9. audit-vitals verifica LCP/CLS/INP
-10. Preview em :8289
+8. design-verifier valida checklist (25 itens)
+9. design-critic audita anti-slop (45+ regras)
+10. audit-slop executa detecção determinística
+11. audit-vitals verifica LCP/CLS/INP
+12. Preview em :8289
 ```
 
 ### 9.2 App Next.js
@@ -2123,33 +2150,33 @@ Gera `DESIGN.md` portátil compatível com Google Stitch, Cursor, Claude Code, C
 
 Antes de qualquer entrega, os verificadores validam 25 itens:
 
-| # | Categoria | Item | Severidade |
-|---|-----------|------|------------|
-| 1 | HTML | Tags HTML válidas (tags fechadas, atributos com aspas) | critical |
-| 2 | HTML | Meta tags essenciais (viewport, description, title, OG) | critical |
-| 3 | Conversão | CTA primary acima da dobra | critical |
-| 4 | Conversão | Copy formula aplicada (Problem → Solution → CTA) | warning |
-| 5 | Conversão | Social proof contextualizado | warning |
-| 6 | A11y | Contraste WCAG AA (4.5:1 normal, 3:1 grande) | critical |
-| 7 | A11y | Keyboard navigation completa | critical |
-| 8 | A11y | Alt text em imagens informativas | critical |
-| 9 | A11y | Focus indicators visíveis | warning |
-| 10 | Perf | CSS critical inline | warning |
-| 11 | Perf | Imagens com dimensões explícitas | critical |
-| 12 | Perf | Sem JS blocking | warning |
-| 13 | Perf | Total < 50KB (sem imagens) | info |
-| 14 | Design | Design system aplicado consistentemente | critical |
-| 15 | Design | Sem gradientes excessivos | warning |
-| 16 | Design | Sem emoji como ícones | warning |
-| 17 | Design | Sem cards com borda lateral colorida | warning |
-| 18 | Design | Sem backgrounds blue-purple genéricos | warning |
-| 19 | Design | Sem fontes overused como padrão | info |
-| 20 | Design | SVGs de ícones (Heroicons/Lucide) | warning |
-| 21 | Motion | Easing correto (ease-out para enter) | warning |
-| 22 | Motion | Durações dentro dos limites | info |
-| 23 | Motion | prefers-reduced-motion respeitado | critical |
-| 24 | Responsivo | Breakpoints funcionais (375/768/1024/1440px) | critical |
-| 25 | Responsivo | Touch targets >= 44px mobile | critical |
+| # | Categoria | Item | Severidade | Determinístico |
+|---|-----------|------|------------|----------------|
+| 1 | HTML | Tags HTML válidas (tags fechadas, atributos com aspas) | critical | Sim (regex/htmllint) |
+| 2 | HTML | Meta tags essenciais (viewport, description, title, OG) | critical | Sim (regex) |
+| 3 | Conversão | CTA primary acima da dobra | critical | Nao (requer layout awareness) |
+| 4 | Conversão | Copy formula aplicada (Problem → Solution → CTA) | warning | Nao (semantico) |
+| 5 | Conversão | Social proof contextualizado | warning | Nao (semantico) |
+| 6 | A11y | Contraste WCAG AA (4.5:1 normal, 3:1 grande) | critical | Nao (requer calculo de cor) |
+| 7 | A11y | Keyboard navigation completa | critical | Nao (requer teste interativo) |
+| 8 | A11y | Alt text em imagens informativas | critical | Sim (regex) |
+| 9 | A11y | Focus indicators visíveis | warning | Nao (requer inspecao CSS) |
+| 10 | Perf | CSS critical inline | warning | Sim (regex) |
+| 11 | Perf | Imagens com dimensões explícitas | critical | Sim (regex) |
+| 12 | Perf | Sem JS blocking | warning | Sim (regex) |
+| 13 | Perf | Total < 50KB (sem imagens) | info | Sim (file size) |
+| 14 | Design | Design system aplicado consistentemente | critical | Nao (semantico) |
+| 15 | Design | Sem gradientes excessivos | warning | Sim (audit-slop) |
+| 16 | Design | Sem emoji como ícones | warning | Sim (audit-slop) |
+| 17 | Design | Sem cards com borda lateral colorida | warning | Sim (audit-slop) |
+| 18 | Design | Sem backgrounds blue-purple genéricos | warning | Sim (audit-slop) |
+| 19 | Design | Sem fontes overused como padrão | info | Sim (audit-slop) |
+| 20 | Design | SVGs de ícones (Heroicons/Lucide) | warning | Nao (semantico) |
+| 21 | Motion | Easing correto (ease-out para enter) | warning | Sim (audit-slop) |
+| 22 | Motion | Durações dentro dos limites | info | Nao (semantico) |
+| 23 | Motion | prefers-reduced-motion respeitado | critical | Sim (audit-slop) |
+| 24 | Responsivo | Breakpoints funcionais (375/768/1024/1440px) | critical | Nao (requer render) |
+| 25 | Responsivo | Touch targets >= 44px mobile | critical | Nao (requer inspecao CSS) |
 
 **Severidades:**
 - **critical:** bloqueia entrega, deve ser corrigido antes de prosseguir
@@ -2165,7 +2192,7 @@ Antes de qualquer entrega, os verificadores validam 25 itens:
 | Regra | Descrição | Padrão de Detecção |
 |-------|-----------|-------------------|
 | `gradient-text` | Texto com gradiente | `bg-clip-text text-transparent bg-gradient-to-r` |
-| `side-stripe-border` | Borda lateral colorida em cards | `border-l-4 border-blue-500` |
+| `side-stripe-border` | Borda lateral colorida em cards | `"type": "file"` — verificar border-[rltb] + border-{cor} no arquivo |
 | `ai-color-palette` | Paleta genérica de IA | `from-purple-600 via-pink-500 to-orange-400` |
 | `ghost-card` | Card com fundo transparente + borda sutil | `bg-transparent border border-gray-200` |
 | `over-rounding` | Border-radius excessivo | `rounded-3xl` em containers grandes |
@@ -2175,16 +2202,16 @@ Antes de qualquer entrega, os verificadores validam 25 itens:
 | `blue-purple-bg` | Background blue-purple genérico | `bg-gradient-to-br from-blue-900 to-purple-900` |
 | `decorative-stats` | Números decorativos sem contexto | `99.9% uptime` sem fonte |
 | `excessive-shadow` | Shadow pesado sem hierarquia | `shadow-2xl` em todos os cards |
-| `no-hover-state` | Elemento clicável sem hover | Botão sem `:hover` transition |
+| `no-hover-state` | Elemento clicável sem hover | `"type": "file"` — verificar cursor-pointer sem hover: no arquivo |
 | `linear-easing` | Easing linear em UI | `transition: all 0.3s linear` |
 | `ease-in-enter` | Ease-in para enter animation | `animation: fadeIn ease-in` |
-| `missing-reduced-motion` | Sem prefers-reduced-motion | Verificar arquivo inteiro por `@media.*prefers-reduced-motion` (tipo: file) |
-| `tiny-touch-target` | Touch target < 44px | `min-height: 32px` em botões mobile |
-| `low-contrast` | Contraste < 4.5:1 | Auditado visualmente pelo design-critic (não determinístico por regex) |
+| `missing-reduced-motion` | Sem prefers-reduced-motion | `"type": "file"` — verificar arquivo inteiro por `prefers-reduced-motion` |
+| `tiny-touch-target` | Touch target < 44px | `"type": "file"` — verificar alturas < 44px em elementos clicaveis |
+| `low-contrast` | Contraste < 4.5:1 | `"type": "visual"` — auditado pelo design-critic |
 | `missing-alt` | Imagem sem alt text | `<img src="...">` sem `alt` |
-| `missing-viewport` | Sem meta viewport | Landing page sem `<meta name="viewport">` |
+| `missing-viewport` | Sem meta viewport | `"type": "file"` — verificar se `<meta name="viewport">` existe |
 | `blocking-js` | Script blocking no head | `<script src="...">` sem async/defer |
-| `cream-serif-cluster` | Cluster generico cream+serif+terracotta | Fundo #F4F1EA range + serif display + terracota accent |
+| `cream-serif-cluster` | Cluster generico cream+serif+terracotta | `"type": "file"` — verificar cream bg + serif + terracotta no arquivo |
 | `dark-acid-cluster` | Cluster generico dark+acid green | Fundo preto/near-black + accent verde acido ou vermilion |
 | `broadsheet-cluster` | Cluster generico broadsheet | Hairline rules + zero radius + colunas densas + serif body |
 
